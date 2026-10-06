@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#24130a">
 <meta name="description" content="Pinball Not War — a playable pinball poster.">
 <title>Pinball Not War</title>
@@ -21,6 +21,7 @@
   color-scheme:dark;
 }
 html,body{height:100%;margin:0;overflow:hidden;background:var(--wall);color:var(--cream)}
+html,body,*{touch-action:none}
 body{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
 #scene{position:fixed;inset:0;overflow:hidden;background:var(--wall)}
 #wood{position:absolute;inset:-48px;background:url(wood.jpg) center/cover;filter:brightness(.9) saturate(1.05);will-change:transform}
@@ -594,6 +595,13 @@ scene.addEventListener('pointerdown', e => {
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => scene.addEventListener(t, e => { if (pointers.delete(e.pointerId)) refreshPointers(); }));
 scene.addEventListener('contextmenu', e => e.preventDefault());
 const onTapEnd = () => { sfx.init(); askMotion(); };
+// iOS: block double-tap zoom and pinch zoom anywhere on the page. Taps still
+// reach the game (and unlock sound) because those listeners run either way.
+const onMute = t => t && t.closest && t.closest('#mute');
+document.addEventListener('touchend', e => { if (!onMute(e.target)) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchstart', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
 ['touchend', 'pointerup', 'click'].forEach(t => addEventListener(t, onTapEnd, { passive: true }));
 
 const muteBtn = document.getElementById('mute');
