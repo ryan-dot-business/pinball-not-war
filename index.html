@@ -458,10 +458,20 @@ const sfx = (() => {
   let muted = false;
   try { muted = localStorage.getItem('pnw-muted') === '1'; } catch (e) {}
   const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28]; // major pentatonic
+  let unlocked = false;
+  // Called from every tap and key press. iPhones only allow sound to start from
+  // a finished tap (touchend / pointerup / click), and mute web audio with the
+  // silent switch unless the page asks for "playback" audio.
   function init() {
-    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (ac) {
+      if (ac.state !== 'running') ac.resume().catch(() => {});
+      if (!unlocked) unlock();
+      return;
+    }
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     ac = new AC();
+    unlock();
     master = ac.createGain(); master.gain.value = muted ? 0 : 0.9;
     const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
     master.connect(comp); comp.connect(ac.destination);
@@ -472,6 +482,15 @@ const sfx = (() => {
     rollGain = ac.createGain(); rollGain.gain.value = 0;
     src.connect(lp); lp.connect(rollGain); rollGain.connect(master); src.start();
   }
+  function unlock() {
+    try {   // a one-sample silent sound played inside the tap unlocks audio on iOS
+      const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050);
+      s.connect(ac.destination); s.start(0);
+      if (ac.state !== 'running') ac.resume().catch(() => {});
+      unlocked = ac.state === 'running';
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (ac && !document.hidden && ac.state !== 'running') ac.resume().catch(() => {}); });
   function env(g, t, peak, a, dcy) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dcy); }
   function noise(t, dur, type, f, q, peak) {
     const s = ac.createBufferSource(); s.buffer = noiseBuf;
@@ -565,7 +584,7 @@ const pointers = new Map();
 const scene = document.getElementById('scene');
 function refreshPointers() { const s = [false, false]; pointers.forEach(v => s[v] = true); s.forEach((d, i) => setFlip(i, d)); }
 scene.addEventListener('pointerdown', e => {
-  sfx.init(); askMotion(); try { window.focus(); } catch (err) {} setHint();
+  sfx.init(); try { window.focus(); } catch (err) {} setHint();
   if (e.pointerType === 'touch') e.preventDefault();
   if (e.clientY < innerHeight * 0.42) { nudge(); return; }
   pointers.set(e.pointerId, e.clientX < innerWidth / 2 ? 0 : 1);
@@ -574,6 +593,8 @@ scene.addEventListener('pointerdown', e => {
 });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => scene.addEventListener(t, e => { if (pointers.delete(e.pointerId)) refreshPointers(); }));
 scene.addEventListener('contextmenu', e => e.preventDefault());
+const onTapEnd = () => { sfx.init(); askMotion(); };
+['touchend', 'pointerup', 'click'].forEach(t => addEventListener(t, onTapEnd, { passive: true }));
 
 const muteBtn = document.getElementById('mute');
 muteBtn.setAttribute('aria-pressed', String(sfx.muted));
@@ -589,7 +610,7 @@ let motionAsked = false;
 function askMotion() {
   if (motionAsked) return; motionAsked = true;
   const D = window.DeviceOrientationEvent;
-  if (D && typeof D.requestPermission === 'function') D.requestPermission().then(s => { if (s === 'granted') listenGyro(); }).catch(() => {});
+  if (D && typeof D.requestPermission === 'function') D.requestPermission().then(s => { if (s === 'granted') listenGyro(); }).catch(() => { motionAsked = false; });   // retry on the next tap
 }
 function listenGyro() {
   addEventListener('deviceorientation', e => {
