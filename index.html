@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#24130a">
+<meta name="description" content="Pinball Not War — a playable pinball poster.">
+<title>Pinball Not War</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one full-bleed wooden wall, the printed poster centred on it, sized to fit; nothing else. */
+:root{
+  --wall:#24130a;      /* wood shadow */
+  --field:#EC008C;     /* playfield magenta */
+  --target-a:#BA0030;  /* target colour 1 */
+  --target-b:#980023;  /* target colour 2 */
+  --cream:#FFE6B8;     /* poster stock / flash */
+  --ui:'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--wall);color:var(--cream)}
+body{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+#scene{position:fixed;inset:0;overflow:hidden;background:var(--wall)}
+#wood{position:absolute;inset:-48px;background:url(wood.jpg) center/cover;filter:brightness(.9) saturate(1.05);will-change:transform}
+#vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 70% 60% at 50% 50%,rgba(0,0,0,0) 35%,rgba(0,0,0,.6) 100%)}
+#stage{position:absolute;left:50%;top:50%;perspective:1800px}
+#tilt{width:100%;height:100%;will-change:transform;box-shadow:0 4px 4px rgba(0,0,0,.25),0 30px 60px -20px rgba(0,0,0,.6)}
+#poster{position:absolute;left:0;top:0;width:1110px;height:1954px;transform-origin:0 0;isolation:isolate;overflow:hidden;background:var(--cream)}
+.tex{position:absolute;pointer-events:none;background-size:cover;background-position:center}
+.paper{mix-blend-mode:multiply;background-image:url(paper.jpg)}
+.ink{mix-blend-mode:screen;background-image:url(ink.jpg)}
+#pf{position:absolute;left:15px;top:12px;width:1080px;height:1930px;display:block}
+.L{transition:fill .45s ease-out}
+.L.flash{fill:var(--cream)!important;transition:none}
+.ballShape{fill:#fff}
+.chrome{position:fixed;z-index:5;font:500 11px/1 var(--ui);letter-spacing:.14em;text-transform:uppercase;color:var(--cream)}
+#hint{left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom,0px));text-align:center;opacity:.8;transition:opacity .8s;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+#hint.gone{opacity:0}
+#mute{top:calc(12px + env(safe-area-inset-top,0px));right:12px;width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,230,184,.45);background:rgba(36,19,10,.55);display:grid;place-items:center;cursor:pointer;padding:0}
+#mute:focus-visible{outline:2px solid var(--cream);outline-offset:2px}
+#mute svg{width:18px;height:18px;stroke:var(--cream);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#mute .off{display:none}
+#mute[aria-pressed="true"] .on{display:none}
+#mute[aria-pressed="true"] .off{display:inline}
+</style>
+</head>
+<body>
+
+<div id="scene">
+  <div id="wood"></div>
+  <div id="vignette"></div>
+  <div id="stage">
+    <div id="tilt">
+      <div id="poster">
+        <div class="tex paper" style="inset:0"></div>
+        <div class="tex ink" style="inset:0"></div>
+        <svg id="pf" viewBox="0 0 1080 1930" aria-label="Pinball Not War — a playable pinball poster" role="img">
+          <rect width="1080" height="1930" fill="#EC008C"/>
+          <g id="Targets">
+            <path class="L" id="letter-R1" d="M921.519 1356.91C904.365 1342.43 889.891 1337.13 902.379 1312.89C913.715 1290.87 937.337 1278.68 946.011 1253.55C954.333 1229.450 951.512 1204.32 948.164 1179.13C942.75 1138.43 929.894 1085.39 887.246 1070.51C854.924 1059.23 822.154 1068.12 790.922 1076.16C775.552 1080.12 746.323 1076.54 733.317 1090.03C714.203 1109.86 734.222 1155.65 736.911 1178.88C740.919 1213.48 742.096 1248.03 742.184 1282.8C742.184 1280.33 742.202 1279.12 742.202 1287.1H742.079C742.079 1345.35 731.656 1402.830 718.158 1459.28C713.702 1477.9 701.944 1506.5 722.877 1518.64C732.359 1524.14 790.614 1524.85 799.973 1519.05C819.28 1507.1 802.302 1373.9 851.33 1391.6C874.635 1400 881.956 1439.29 882.263 1459.48C882.536 1477.35 870.637 1498.62 875.98 1507.43C881.191 1516.02 893.696 1513.16 907.353 1514.88C933.567 1518.18 937.082 1522.69 944.438 1493.93C951.688 1465.61 958.929 1436.75 952.76 1407.53C947.962 1384.78 938.98 1371.66 921.536 1356.93L921.519 1356.91ZM850.319 1260.54C838.412 1264.12 825.001 1272.28 817.839 1261.71C814.737 1257.13 816.96 1222.32 816.372 1216.07C813.814 1189.26 789.217 1151.26 822.268 1145.73C852.402 1140.67 870.408 1166.91 874.943 1194.86C874.829 1194.86 874.714 1194.87 874.6 1194.87C874.688 1194.87 874.644 1196.87 874.618 1196.41C874.978 1228.33 886.095 1249.78 850.328 1260.53L850.319 1260.54Z" fill="#980023"/>
+            <path class="L" id="letter-A2" d="M648.022 1117.32C603.687 1117.35 551.469 1140.12 511.774 1158.06C462.351 1180.41 441.928 1216.16 441.216 1269.61C440.399 1330.87 440.909 1392.87 431.145 1453.54C428.781 1468.24 415.265 1521.32 423.491 1534.93C429.089 1544.2 478.661 1547.46 489.963 1538C500.543 1529.15 506.422 1491.24 512.855 1477.9C523.989 1454.83 539.061 1432.87 553.06 1411.23C560.784 1399.28 573.008 1384.73 585.795 1404.98C592.64 1415.81 588.115 1458.02 586.805 1471.86C585.663 1483.98 582.095 1511.16 590.523 1519.35C600.075 1528.64 632.248 1521.94 644.647 1520.8C692.207 1516.42 695.731 1506.43 707.49 1392.99C713.553 1334.45 756.579 1104.61 648.022 1117.32V1117.32ZM575.196 1313.92C531.714 1322.98 551.548 1299.21 552.295 1267.32C552.831 1244.48 541.082 1214 573.729 1208.63C573.817 1208.61 573.992 1208.57 574.318 1208.53C574.739 1208.53 574.915 1208.54 574.95 1208.55C599.521 1209.19 605.251 1246.31 607.905 1264.84C613.169 1301.55 611.482 1306.34 575.188 1313.92H575.196Z" fill="#BA0030"/>
+            <path class="L" id="letter-W1" d="M394.974 1208.53C378.339 1214.4 359.401 1218.25 350.34 1226.42C336.368 1239.03 347.317 1265.62 349.128 1281.74C350.912 1297.68 342.291 1322.08 321.252 1302.05C309.292 1290.66 321.173 1251.76 300.285 1254.3C283.957 1256.28 269.887 1293.18 265.458 1303.67C259.104 1318.71 256.108 1357.94 243.708 1367.47C222.494 1383.78 218.188 1362.91 217.74 1350.02C216.799 1323.1 216.395 1299.81 211.21 1273.49C210.56 1270.22 207.634 1267.88 204.294 1268.02C187.167 1268.75 139.167 1270.25 135.265 1275.85C129.457 1284.17 140.863 1338.48 140.494 1349.79C138.78 1401.88 131.636 1452.22 121.055 1503.13C118.164 1517.05 105.158 1552.83 119.544 1561.75C125.678 1565.57 174.231 1557.970 180.303 1555.52C200.542 1547.38 203.697 1518.56 217.406 1499.82C225.948 1488.14 251.547 1458.85 265.599 1454.91C323.687 1438.65 282.445 1530.58 299.669 1547.02C308.308 1555.27 347.484 1550.3 358.214 1547.68C383.365 1541.52 385.29 1528.18 391.441 1501.82C403.63 1449.6 414.764 1399.5 417.155 1345.97C418.974 1305.32 419.422 1264.08 413.578 1223.39C411.935 1211.96 401.038 1206.4 395.001 1208.53H394.974Z" fill="#980023"/>
+            <path class="L" id="letter-T1" d="M934.384 872.245C924.937 864.336 911.536 866.551 894.804 864.407C876.323 862.043 861.12 863.317 842.463 861.964C800.509 858.906 735.18 855.927 720.979 855.848C706.778 855.769 705.284 862.992 703.412 872.43C701.549 881.867 695.6 904.275 695.187 917.983C695.011 923.959 692.427 945.839 699.44 950.532C703.509 953.256 736.05 940.453 741.525 939.565C766.008 935.602 771.501 942.764 771.852 968.871C772.195 994.152 769.014 1009.24 772.784 1034.53C777.529 1066.38 795.21 1053.52 822.778 1051.85C848.571 1050.29 868.923 1057.67 870.83 1028.61C871.867 1012.77 869.407 994.468 866.331 979.047C864.784 971.279 863.782 953.537 865.575 947.535C868.844 936.56 891.227 929.178 909.884 932.948C923.268 935.655 926.176 921.279 928.119 916.27C934.007 901.103 946.037 881.999 934.393 872.245H934.384Z" fill="#BA0030"/>
+            <path class="L" id="letter-O1" d="M660.061 848.124C633.961 830.127 606.965 821.314 591.287 816.999C584.529 814.451 562.515 809.556 544.228 812.693C520.905 818.176 514.683 815.602 501.853 834.117C492.696 847.324 487.511 867.755 483.837 883.036C474.179 923.185 472.51 968.379 476.174 1009.35C478.345 1033.58 477.66 1104.74 499.7 1121.2C520.694 1136.88 582.192 1110.28 604.97 1105.16C629.857 1099.57 660.94 1087.63 671.354 1062.9C679.149 1044.37 671.617 1021.32 671.011 1001.49C670.431 982.245 671.784 963.229 673.99 944.126C677.567 913.106 690.546 869.143 660.061 848.124ZM606.701 988.15C608.019 1001.4 612.94 1022.76 609.671 1034.96C605.928 1048.94 568.333 1054.49 558.64 1050.49C534.139 1040.34 537.4 1013.85 535.361 991.076C536.081 973.765 530.387 920.822 540.915 906.999C546.319 899.899 581.55 901.164 592.28 901.419C627.098 902.236 608.749 924.6 606.833 950.461C605.928 962.737 605.471 975.936 606.683 988.15H606.701Z" fill="#980023"/>
+            <path class="L" id="letter-N2" d="M141.724 1193.22C143.939 1204.01 148.957 1223.76 150.02 1234.86C152.639 1262.19 272.286 1250.6 281.206 1218.29C286.672 1198.5 268.569 1155.62 264.201 1134.48C258.419 1106.46 256.433 1078.41 252.68 1050.14C250.984 1037.38 237.767 989.222 258.867 985.268C270.564 983.071 293.878 1022.14 300.601 1030.58C334.926 1073.66 342.923 1118.51 361.413 1169.55C363.584 1175.55 373.435 1180.87 383.348 1176.94C397.329 1171.4 423.596 1153.9 437.762 1146.99C464.425 1133.98 461.674 1129.11 456.366 1104.57C443.993 1047.37 444.274 990.997 450.364 932.605C453.721 900.4 458.932 868.431 466.815 837.043C474.654 805.821 484.945 787.087 448.176 773.642C413.077 760.804 403.068 765.277 388.99 797.245C378.031 822.14 372.706 847.087 370.245 874.108C368.821 889.749 377.688 922.974 362.942 931.683C346.122 941.604 339.426 900.013 337.088 885.962C327.896 830.857 316.841 770.426 268.692 734.354C250.317 720.593 225.746 717.913 202.941 717.632C173.255 717.254 153.825 716.779 152.103 747.719C148.904 804.89 134.518 850.523 120.704 905.83C104.024 972.588 108.032 1041.69 123.147 1108.23C129.553 1136.42 135.924 1164.91 141.742 1193.23L141.724 1193.22Z" fill="#BA0030"/>
+            <path class="L" id="letter-L2" d="M864.336 572.763C852.059 530.276 861.348 467.095 855.328 422.877C849.168 377.649 846.013 354.072 794.683 356.067C768.82 357.078 761.632 353.027 758.723 373.888C756.051 393 767.405 426.586 769.479 447.271C774.383 496.085 776.633 545.391 776.167 594.354C775.991 612.57 767.801 648.229 773.803 665.777C781.923 689.512 797.891 682.948 824.94 682.886C851.022 682.834 858.782 681.797 884.785 683.484C895.155 684.161 941.995 693.686 948.55 688.08C964.975 674.02 964.975 589.248 932.917 589.591C906.905 589.872 875.453 611.269 864.318 572.763H864.336Z" fill="#BA0030"/>
+            <path class="L" id="letter-L1" d="M914.761 714.89C889.909 712.069 865.399 713.132 840.336 712.675C818.402 712.271 755.955 710.523 742.175 703.466C725.839 695.092 740.075 647.623 741.279 629.196C744.021 587.333 747.492 539.389 742.175 498.062C738.88 472.429 738.3 388.949 707.323 378.571C690.828 373.044 676.855 385.021 659.358 389.758C634.102 396.603 632.986 405.303 637.468 430.241C655.641 531.392 641.492 637.561 638.417 739.055C637.555 767.394 628.645 805.523 657.513 819.205C680.739 830.215 715.117 829.407 740.286 831.481C792.987 835.822 857.877 847.79 905.683 847.79C923.224 847.79 930.526 832.35 931.88 829.398C943.963 802.966 954.623 787.025 954.772 749.943C954.904 717.298 945.519 718.352 914.77 714.872L914.761 714.89Z" fill="#980023"/>
+            <path class="L" id="letter-A1" d="M415.116 744.67C418.157 756.147 429.616 752.772 442.218 755.848C474.663 763.765 476.183 757.104 483.679 723.493C488.328 702.64 486.544 671.744 503.689 656.472C522.478 639.74 537.11 654.653 543.173 676.384C550.854 703.923 537.532 733.8 536.363 760.892C535.352 784.415 562.7 798.106 587.666 801.006C601.068 802.561 603.608 801.024 605.69 791.041C607.501 782.386 607.176 767.763 607.861 759.196C610.304 728.625 609.469 697.825 612.905 667.35C619.479 609.152 619.154 553.967 613.529 495.724C613.731 495.707 613.925 495.689 614.127 495.672C612.457 477.517 607.246 440.241 591.094 427.877C573.333 414.292 526.134 431.919 507.494 437.702C489.251 443.361 461.042 451.911 447.086 465.18C428.21 483.132 435.847 506.173 439.318 528.361C447.253 579.081 442.06 645.628 429.01 695.874C426.804 704.38 413.069 736.946 415.116 744.661V744.67ZM520.914 498.431C537.532 494.714 549.852 520.452 549.852 536.181H550.072C549.545 554.424 549.501 591.797 530.378 595.83C511.976 599.714 508.681 570.241 507.029 554.749C505.5 540.435 501.984 502.658 520.914 498.422V498.431Z" fill="#BA0030"/>
+            <path class="L" id="letter-B1" d="M412.981 551.893C418.464 503.976 390.721 482.939 344.356 485.364C309.213 487.21 273.604 493.747 239.13 500.804C227.125 503.264 181.885 503.835 173.176 511.761C163.624 520.452 170.566 552.218 169.837 565.768C168.58 589.064 145.556 668.493 161.506 686.006C174.011 699.74 197.651 694.451 230.517 701.612C270.994 710.435 286.734 714.503 338.688 733.616C354.532 739.442 378.014 751.718 392.61 737.473C402.453 727.86 409.852 680.057 410.133 666.682C410.863 631.287 358.258 618.053 379.059 596.823C396.828 578.686 409.597 581.515 412.981 551.902V551.893ZM272.392 536.928C297.938 534.811 319.425 524.213 315.628 559.503C313.308 581.085 306.489 581.946 285.96 584.468C270.116 586.419 240.553 590.241 239.288 568.097C239.217 568.08 239.156 568.053 239.086 568.036C244.323 537.543 241.537 539.494 272.392 536.928ZM296.268 667.148C296.251 667.069 296.242 666.981 296.225 666.902C292.964 666.682 296.242 666.981 296.225 666.902C282.199 665.953 241.001 662.192 231.212 655.865C218.478 647.64 227.925 623.422 246.204 619.556C255.106 617.667 299.529 624.134 307.719 627.754C329.223 637.271 320.839 664.301 296.268 667.148Z" fill="#980023"/>
+            <path class="L" id="letter-N1" d="M639.313 287.64C650.315 323.58 667.083 359.354 673.401 362.675C678.349 365.276 722.095 349.274 727.675 343.404C738.95 331.55 708.887 303.264 726.085 292.315C736.314 285.795 776.184 305.39 786.897 310.136C825.028 327.025 850.091 340.267 891.895 326.208C895.208 325.092 903.214 318.905 901.236 307.868C896.939 283.879 891.622 206.629 886.798 157.798C884.645 135.979 880.989 130.83 858.923 130.882C847.788 130.909 817.742 131.497 809.649 138.439C791.071 154.371 808.621 180.487 805.65 198.844C801.344 225.496 782.608 221.823 763.6 206.058C743.617 189.494 737.122 167.613 720.46 150.197C706.189 135.285 671.459 132.877 650.948 136.647C619.127 142.508 623.468 171.533 624.751 200.557C626.026 229.292 630.789 259.802 639.313 287.631V287.64Z" fill="#BA0030"/>
+            <path class="L" id="letter-I1" d="M477.844 290.566C488.776 320.048 495.833 378.123 498.478 402.649C499.137 408.765 505.078 412.868 511.027 411.322C537.285 404.468 563.271 390.47 588.8 382.561C596.349 380.224 622.054 376.928 626.324 368.756C628.987 363.659 620.463 339.266 618.24 333.598C603.731 296.752 590.25 264.178 590.364 223.861C590.417 203.765 591.999 183.141 593.045 163.053C593.897 146.638 600.189 131.199 586.515 125.337C576.189 120.917 547.787 124.757 536.6 124.239C522.302 123.58 506.739 121.963 492.546 124.257C453.607 130.557 454.169 158.782 454.767 192.218C455.409 227.763 465.629 257.578 477.862 290.557L477.844 290.566Z" fill="#980023"/>
+            <path class="L" id="letter-P1" d="M173.792 462.649C175.294 472.658 179.24 479.239 188.986 479.951C200.366 480.786 221.554 475.777 233.048 473.352C249.201 469.942 293.676 466.032 305.039 454.934C330.374 430.18 289.317 409.108 291.989 387.508C291.725 389.652 292.771 378.598 291.989 387.508C294.994 353.194 326.982 366.252 354.242 364.898C369.366 364.143 422.287 361.726 435.803 352.605C458.941 337.007 450.936 312.816 448.079 298.053C444.441 279.266 428.834 240.127 422.999 180.276C419.484 144.195 413.657 139.916 371.888 131.612C318.449 120.988 251.222 112.938 198.494 121.796C64.6722 144.283 135.696 297.403 160.706 380.223C168.976 407.596 169.626 434.819 173.792 462.649ZM262.602 204.178C276.408 193.308 335.612 191.12 338.521 212.517C342.862 244.468 363.373 272.921 340.226 287.288C327.747 295.039 313.326 292.772 301.172 294.318C285.002 296.375 276.478 308.589 262.549 300.496C241.748 288.422 247.329 216.199 262.602 204.178Z" fill="#BA0030"/>
+          </g>
+          <g id="Flippers">
+            <g id="FR">
+              <circle cx="965.5" cy="1613.5" r="6.5" fill="#D9D9D9"/>
+              <path d="M623.662 1757.43L971.258 1686.58C1011.99 1678.27 1036.42 1636.36 1023.56 1596.83C1010.78 1557.55 966.803 1537.98 929.059 1554.76L604.935 1698.92C590.479 1705.36 583.22 1721.67 588.106 1736.71C592.966 1751.65 608.265 1760.57 623.662 1757.42V1757.43Z" fill="#BA0030"/>
+            </g>
+            <g id="FL">
+              <circle cx="118.5" cy="1659.5" r="6.5" fill="#D9D9D9"/>
+              <path d="M455.338 1801.37L107.742 1730.51C67.0097 1722.21 42.5794 1680.3 55.4448 1640.77C68.2224 1601.49 112.197 1581.91 149.941 1598.7L474.065 1742.86C488.521 1749.29 495.78 1765.6 490.894 1780.65C486.034 1795.59 470.735 1804.5 455.338 1801.36V1801.37Z" fill="#BA0030"/>
+            </g>
+          </g>
+          <g id="balls"></g>
+        </svg>
+        <div class="tex paper" style="left:16px;top:12px;width:1081px;height:1930px"></div>
+        <div class="tex ink" style="inset:0"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p id="hint" class="chrome">← → to flip</p>
+<button id="mute" class="chrome" type="button" aria-label="Mute sound" aria-pressed="false">
+  <svg class="on" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+  <svg class="off" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+</button>
+
+<script>
+(() => {
+'use strict';
+/* ---------- world (playfield units: 1080 × 1930, from the Figma frame) ---------- */
+const W = 1080, H = 1930, R = 66;
+const G = 1500;                 // floaty gravity
+const DT = 1 / 240;             // physics step
+const COL_A = '#BA0030', COL_B = '#980023';
+const SVGNS = 'http://www.w3.org/2000/svg';
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let clock = 0;                  // game time in seconds
+
+/* ---------- letters ---------- */
+const ORDER = ['P1','I1','N1','B1','A1','L1','L2','N2','O1','T1','W1','A2','R1'];
+const ROW = { P1:1, I1:1, N1:1, B1:2, A1:2, L1:2, L2:2, N2:3, O1:3, T1:3, W1:4, A2:4, R1:4 };
+const hitCtx = document.createElement('canvas').getContext('2d');
+const letters = ORDER.map((k, i) => {
+  const el = document.getElementById('letter-' + k);
+  const start = el.getAttribute('fill').toUpperCase() === COL_A;
+  el.style.fill = start ? COL_A : COL_B;
+  const bb = el.getBBox(), pad = R + 8;
+  return { k, i, el, row: ROW[k], start, isA: start, path: new Path2D(el.getAttribute('d')),
+    x0: bb.x - pad, x1: bb.x + bb.width + pad, y0: bb.y - pad, y1: bb.y + bb.height + pad };
+});
+let lettersLocked = true;       // locked during light shows
+let celebrating = false;
+
+function flash(L, ms = 110) {
+  L.el.classList.add('flash');
+  clearTimeout(L.ft);
+  L.ft = setTimeout(() => L.el.classList.remove('flash'), ms);
+}
+function paint(L) { L.el.style.fill = L.isA ? COL_A : COL_B; }
+function toggle(i) {
+  if (lettersLocked) return;
+  const L = letters[i];
+  L.isA = !L.isA; paint(L); flash(L);
+  sfx.ping(i, L.isA);
+  if (!celebrating && letters.every(l => l.isA === L.isA)) celebrate();
+}
+
+/* ---------- return paths: rolling surfaces traced from the letter tops ----------
+   For each row we rasterise the letters, take the top edge of every column,
+   then roll a ball-sized circle over it to get the path of the ball's centre.
+   Walking upstream from the exit end, each point is kept a little higher than
+   the one after it, which bridges the notches in N and W and any gaps between
+   letters, so the ball never settles in a dip. */
+const SURF_STEP = 4, MIN_SLOPE = 0.08, CLEAR = R + 3;
+const SURFS = buildSurfaces([
+  // reach: how far the path runs past the last letter at its entry end (playfield units)
+  { row: 2, flow: -1, reach: 10 },    // BALL rolls right → left, stops at the L
+  { row: 3, flow:  1, reach: 20 },    // NOT  rolls left → right, ends just past the N's left edge
+  { row: 4, flow: -1, reach: 8 },     // WAR  rolls right → left, runs to the R's edge so balls
+                                      //      coming off the T fall past it to the right flipper
+]);
+function buildSurfaces(defs) {
+  const S = 0.5, cw = Math.ceil(W * S), ch = Math.ceil(H * S);
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const c = cv.getContext('2d', { willReadFrequently: true });
+  return defs.map(d => {
+    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, cw, ch);
+    c.setTransform(S, 0, 0, S, 0, 0); c.fillStyle = '#000';
+    letters.filter(L => L.row === d.row).forEach(L => c.fill(L.path));
+    const px = c.getImageData(0, 0, cw, ch).data;
+    const top = new Float32Array(cw).fill(Infinity);
+    for (let x = 0; x < cw; x++) for (let y = 0; y < ch; y++) if (px[(y * cw + x) * 4 + 3] > 127) { top[x] = y / S; break; }
+    const n = Math.floor(W / SURF_STEP) + 1, cy = new Float32Array(n).fill(Infinity);
+    for (let i = 0; i < n; i++) {
+      const x = i * SURF_STEP; let best = Infinity;
+      const a = Math.max(0, Math.ceil((x - CLEAR) * S)), b = Math.min(cw - 1, Math.floor((x + CLEAR) * S));
+      for (let p = a; p <= b; p++) {
+        const t = top[p]; if (t === Infinity) continue;
+        const dx = p / S - x, v = t - Math.sqrt(Math.max(0, CLEAR * CLEAR - dx * dx));
+        if (v < best) best = v;
+      }
+      cy[i] = best;
+    }
+    let first = 0, last = n - 1;
+    while (first < n && cy[first] === Infinity) first++;
+    while (last > 0 && cy[last] === Infinity) last--;
+    let inkMin = 0, inkMax = cw - 1;
+    while (inkMin < cw && top[inkMin] === Infinity) inkMin++;
+    while (inkMax > 0 && top[inkMax] === Infinity) inkMax--;
+    const up = -d.flow;                       // index step that walks upstream
+    let exit = d.flow < 0 ? first : last;
+    // trim the steep roll-off at the exit, and keep the exit clear of the wall,
+    // so the ball drops off cleanly instead of wedging against the side
+    const wallGap = Math.ceil((R + 30) / SURF_STEP);
+    while (Math.abs(cy[exit] - cy[exit + up]) / SURF_STEP > 0.8 ||
+           (d.flow < 0 ? exit < wallGap : exit > n - 1 - wallGap)) exit += up;
+    for (let i = exit + up; i >= 0 && i < n; i += up) cy[i] = Math.min(cy[i], cy[i - up] - MIN_SLOPE * SURF_STEP);
+    // entry end: stop the path a set distance past the last letter instead of running to the wall
+    const entryX = d.flow < 0 ? inkMax / S + d.reach : inkMin / S - d.reach;
+    const entry = Math.max(0, Math.min(n - 1, Math.round(entryX / SURF_STEP)));
+    const lo = d.flow < 0 ? exit : entry, hi = d.flow < 0 ? entry : exit;
+    return { row: d.row, flow: d.flow, lo, hi, cy };
+  });
+}
+function surfAt(s, x) {
+  const f = x / SURF_STEP, i = Math.floor(f);
+  if (i < s.lo || i >= s.hi) return null;
+  const t = f - i, y = s.cy[i] * (1 - t) + s.cy[i + 1] * t;
+  return [y, (s.cy[i + 1] - s.cy[i]) / SURF_STEP];
+}
+// Short feed rails from the side walls onto the flippers (from the Figma return trails)
+const SEGS = [
+  [1085.5, 1496.5, 942, 1544],
+  [149.879, 1587.97, 1, 1561.83],
+].map(([x1, y1, x2, y2]) => {
+  const ax = Math.min(x1, x2), ay = ax === x1 ? y1 : y2, bx = Math.max(x1, x2), by = ax === x1 ? y2 : y1;
+  const len = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / len, uy = (by - ay) / len;
+  let nx = uy, ny = -ux; if (ny > 0) { nx = -nx; ny = -ny; }
+  return { ax, ay, len, ux, uy, nx, ny };
+});
+
+/* ---------- flippers ---------- */
+const flippers = [
+  { el: document.getElementById('FL'), px: 118.5, py: 1659.5, c0: [121.64, 1662.30], r0: 69.6, c1: [461.51, 1771.09], r1: 30.9, up: -0.62, a: 0, w: 0, held: false },
+  { el: document.getElementById('FR'), px: 965.5, py: 1613.5, c0: [957.36, 1618.37], r0: 69.6, c1: [617.49, 1727.15], r1: 30.9, up: 0.62, a: 0, w: 0, held: false },
+];
+function stepFlippers(dt) {
+  for (const f of flippers) {
+    const target = f.held ? f.up : 0, speed = f.held ? 20 : 9, prev = f.a;
+    const d = target - f.a; f.a += Math.sign(d) * Math.min(Math.abs(d), speed * dt);
+    f.w = (f.a - prev) / dt;
+  }
+}
+function rotP(f, p, a) {
+  const c = Math.cos(a), s = Math.sin(a), dx = p[0] - f.px, dy = p[1] - f.py;
+  return [f.px + dx * c - dy * s, f.py + dx * s + dy * c];
+}
+
+/* ---------- balls ---------- */
+const ballLayer = document.getElementById('balls');
+const balls = [];
+function makeBall(x, y, vx = 0, vy = 0) {
+  const g = document.createElementNS(SVGNS, 'g');
+  const c = document.createElementNS(SVGNS, 'circle'); c.setAttribute('r', R); c.setAttribute('class', 'ballShape');
+  g.appendChild(c); ballLayer.appendChild(g);
+  const b = { x, y, vx, vy, asc: false, ax: x, grounded: false, launchT: -9, sq: 0, sqA: 0, el: g, touch: new Map(), pop: 0 };
+  balls.push(b); return b;
+}
+
+function impact(b, v, nx, ny, kind) {
+  if (b.sim) return;
+  if (v > 220) { b.sq = Math.min(0.22, v / 5500); b.sqA = Math.atan2(ny, nx); }
+  if (v > 140 && clock - (impact.t || 0) > 0.06) { impact.t = clock; kind === 'wall' ? sfx.wall(v) : sfx.land(v); }
+}
+
+function stepBall(b, dt, t) {
+  b.vy += G * dt;
+  if (!b.asc) { const drag = 1 - 0.22 * dt; b.vx *= drag; b.vy *= drag; }
+  const sp = Math.hypot(b.vx, b.vy); if (sp > 2800) { b.vx *= 2800 / sp; b.vy *= 2800 / sp; }
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  b.grounded = false;
+  if (b.asc && b.vy >= 0) { b.asc = false; b.x = b.ax; b.vx = 0; }   // cartoon hang at the top of the shot
+
+  // walls
+  if (b.x < R) { b.x = R; if (b.vx < 0) { impact(b, -b.vx, 1, 0, 'wall'); b.vx = -b.vx * 0.55; } }   // left wall kicks balls off the B back onto the N
+  if (b.x > W - R) { b.x = W - R; if (b.vx > 0) { impact(b, b.vx, -1, 0, 'wall'); b.vx = -b.vx * 0.2; } }   // soft right wall: balls off the T drop past the R
+  if (b.y < R) { b.y = R; if (b.vy < 0) { impact(b, -b.vy, 0, 1, 'wall'); b.vy = -b.vy * 0.45; } }
+  if (b.y > H + R * 2) { b.gone = true; return; }
+  if (b.asc) return;   // on the way up the ball passes through everything
+
+  // rolling surfaces along the letter tops (one-way: only from above)
+  for (const s of SURFS) {
+    const r = surfAt(s, b.x); if (!r) continue;
+    const d = b.y - r[0]; if (d <= 0 || d > 44) continue;
+    const k = r[1], inv = 1 / Math.hypot(1, k), nx = k * inv, ny = -inv;
+    const vn = b.vx * nx + b.vy * ny; if (vn >= 0) continue;
+    b.y = r[0];
+    const e = -vn > 380 ? 0.28 : 0;
+    b.vx -= (1 + e) * vn * nx; b.vy -= (1 + e) * vn * ny;
+    const tx = inv, ty = k * inv, tv = b.vx * tx + b.vy * ty, f = -0.12 * dt;
+    b.vx += tx * tv * f; b.vy += ty * tv * f;
+    impact(b, -vn, nx, ny, 'land'); b.grounded = true;
+  }
+  // feed rails
+  const lim = R + 5.5;
+  for (const s of SEGS) {
+    const rx = b.x - s.ax, ry = b.y - s.ay, u = rx * s.ux + ry * s.uy; if (u < 0 || u > s.len) continue;
+    const dd = rx * s.nx + ry * s.ny, vn = b.vx * s.nx + b.vy * s.ny;
+    if (dd < lim && dd > lim - 48 && vn < 0) {
+      b.x += s.nx * (lim - dd); b.y += s.ny * (lim - dd);
+      const e = -vn > 380 ? 0.28 : 0; b.vx -= (1 + e) * vn * s.nx; b.vy -= (1 + e) * vn * s.ny;
+      impact(b, -vn, s.nx, s.ny, 'land'); b.grounded = true;
+    }
+  }
+  if (b.sim) return;
+  // flippers
+  if (t - b.launchT < 0.16) return;
+  for (let i = 0; i < 2; i++) {
+    const f = flippers[i];
+    const q0 = rotP(f, f.c0, f.a), q1 = rotP(f, f.c1, f.a);
+    const dx = q1[0] - q0[0], dy = q1[1] - q0[1];
+    let u = ((b.x - q0[0]) * dx + (b.y - q0[1]) * dy) / (dx * dx + dy * dy); u = Math.max(0, Math.min(1, u));
+    const qx = q0[0] + dx * u, qy = q0[1] + dy * u, rr = f.r0 + (f.r1 - f.r0) * u;
+    let nx = b.x - qx, ny = b.y - qy; const dist = Math.hypot(nx, ny);
+    if (dist >= R + rr || dist === 0) continue;
+    nx /= dist; ny /= dist;
+    b.x += nx * (R + rr - dist); b.y += ny * (R + rr - dist);
+    const cx = b.x - nx * R, cy = b.y - ny * R;
+    const svx = -f.w * (cy - f.py), svy = f.w * (cx - f.px);
+    const vn = (b.vx - svx) * nx + (b.vy - svy) * ny;
+    if (f.held && Math.abs(f.w) > 2 && (svx * nx + svy * ny) > 0) { launch(b, nx, ny, t); return; }
+    if (vn < 0) {
+      b.vx -= 1.3 * vn * nx; b.vy -= 1.3 * vn * ny;
+      impact(b, -vn, nx, ny, 'land');
+      if (ny < -0.3) b.grounded = true;
+    }
+  }
+}
+
+// Cartoon launch: the shot is planned so the ball tops out exactly above a chosen
+// landing spot, hangs for a beat, then drops straight down onto the return path.
+function launch(b, nx, ny, t) {
+  const s = chooseShot();
+  const ay = Math.min(s.ay, b.y - 220);
+  const vy0 = Math.sqrt(2 * G * (b.y - ay)), tA = vy0 / G;
+  b.vy = -vy0; b.vx = (s.xt - b.x) / tA; b.ax = s.xt; b.asc = true; b.launchT = t;
+  b.sq = 0.24; b.sqA = Math.atan2(ny, nx);
+  sfx.launch();
+}
+
+function collideBalls() {
+  for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+    const a = balls[i], b = balls[j]; if (a.asc || b.asc || a.pop || b.pop) continue;
+    let nx = b.x - a.x, ny = b.y - a.y; const d = Math.hypot(nx, ny);
+    if (d >= 2 * R || d === 0) continue;
+    nx /= d; ny /= d; const o = (2 * R - d) / 2;
+    a.x -= nx * o; a.y -= ny * o; b.x += nx * o; b.y += ny * o;
+    const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny; if (rv >= 0) continue;
+    const j2 = -(1 + 0.6) * rv / 2;
+    a.vx -= j2 * nx; a.vy -= j2 * ny; b.vx += j2 * nx; b.vy += j2 * ny;
+    if (-rv > 200) sfx.clack(-rv);
+  }
+}
+
+/* ---------- touching letters ---------- */
+const SAMPLES = [[0, 0]];
+for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; SAMPLES.push([Math.cos(a) * 0.7, Math.sin(a) * 0.7]); }
+for (let k = 0; k < 7; k++) { const a = Math.PI * (0.12 + 0.76 * k / 6); SAMPLES.push([Math.cos(a) * 1.06, Math.sin(a) * 1.06]); }
+function touches(b, t, onEnter) {
+  if (b.asc || b.pop) return;
+  for (const L of letters) {
+    if (b.x < L.x0 || b.x > L.x1 || b.y < L.y0 || b.y > L.y1) continue;
+    let hit = false;
+    for (const [sx, sy] of SAMPLES) if (hitCtx.isPointInPath(L.path, b.x + sx * R, b.y + sy * R)) { hit = true; break; }
+    if (!hit) continue;
+    const seen = b.touch.get(L.i);
+    if (seen === undefined || t - seen > 0.22) onEnter(L.i);
+    b.touch.set(L.i, t);
+  }
+}
+
+/* ---------- shot planning ----------
+   Every possible landing spot is test-dropped once at load to learn which letters
+   that run switches. Most launches then pick a run that brings the letters closer
+   to all one colour, so the multiball payoff arrives after a handful of flips. */
+const SHOTS = [];
+function simShot(xt, ay) {
+  const b = { x: xt, y: ay, vx: 0, vy: 0, asc: false, ax: xt, launchT: -9, touch: new Map(), sim: true };
+  let mask = 0, t = 0, n = 0;
+  while (t < 10) {
+    stepBall(b, DT, t);
+    if (++n % 4 === 0) touches(b, t, i => { mask ^= 1 << i; });
+    if (b.y > 1520) break;
+    t += DT;
+  }
+  return { xt, ay, mask };
+}
+(function buildShots() {
+  const cands = [];
+  for (let xt = 110; xt <= 970; xt += 40) {
+    cands.push([xt, 95]);
+    for (const s of SURFS) { const r = surfAt(s, xt); if (r && r[0] - 110 > 140) cands.push([xt, r[0] - 110]); }
+  }
+  let ci = 0;
+  (function chunk() {
+    const t0 = performance.now();
+    while (ci < cands.length && performance.now() - t0 < 8) { const r = simShot(...cands[ci++]); if (r.mask) SHOTS.push(r); }
+    if (ci < cands.length) setTimeout(chunk, 16);
+  })();
+})();
+const popcount = v => { let c = 0; while (v) { v &= v - 1; c++; } return c; };
+const oddOnes = s => { const o = popcount(s); return Math.min(o, letters.length - o); };
+function stateBits() { let s = 0; letters.forEach((L, i) => { if (L.isA) s |= 1 << i; }); return s; }
+// Distance (in runs) from every colour pattern to "all one colour", found by
+// breadth-first search over the 8192 patterns using the runs learned above.
+let DIST = null, distFor = 0;
+function buildDist() {
+  const N = 1 << letters.length, masks = [...new Set(SHOTS.map(s => s.mask))];
+  const d = new Int8Array(N).fill(-1), q = new Int32Array(N); let h = 0, t = 0;
+  d[0] = 0; d[N - 1] = 0; q[t++] = 0; q[t++] = N - 1;
+  while (h < t) { const s = q[h++]; for (const m of masks) { const n = s ^ m; if (d[n] < 0) { d[n] = d[s] + 1; q[t++] = n; } } }
+  DIST = d; distFor = SHOTS.length;
+}
+let lastShot = null;
+function chooseShot() {
+  if (!SHOTS.length) return { xt: 520 + Math.random() * 380, ay: 95 };
+  if (distFor !== SHOTS.length) buildDist();
+  let pool = SHOTS;
+  const s = stateBits(), here = DIST[s];
+  if (!celebrating && here > 0 && Math.random() > 0.3) {
+    const closer = SHOTS.filter(sh => { const v = DIST[s ^ sh.mask]; return v >= 0 && v < here; });
+    if (closer.length) pool = closer;
+  }
+  let sh = pool[Math.random() * pool.length | 0];
+  if (sh === lastShot && pool.length > 1) sh = pool[(pool.indexOf(sh) + 1) % pool.length];
+  return (lastShot = sh);
+}
+
+/* ---------- light shows + multiball ---------- */
+const later = (ms, fn) => setTimeout(fn, reduceMotion ? 0 : ms);
+function chase(step, hold, t0 = 0) {
+  letters.forEach((L, i) => later(t0 + i * step, () => flash(L, hold)));
+  return t0 + letters.length * step + hold;
+}
+function openingShow() {
+  const end = chase(85, 160, 300);
+  [0, 260].forEach(d => later(end + d, () => letters.forEach(L => flash(L, 130))));
+  later(end + 400, () => { lettersLocked = false; makeBall(880, 90, -40, 0); sfx.launch(); });
+}
+let multi = false;          // true from the start of multiball until the table empties
+function celebrate() {
+  celebrating = true; lettersLocked = true;
+  sfx.fanfare();
+  let t = chase(60, 120, 150);
+  t = chase(60, 120, t);
+  for (let k = 0; k < 3; k++) later(t + k * 240, () => letters.forEach(L => flash(L, 140)));
+  t += 3 * 240 + 200;
+  // back to the opening pattern, one letter at a time
+  letters.forEach((L, i) => later(t + i * 85, () => { L.isA = L.start; paint(L); flash(L, 160); sfx.ping(i, L.isA); }));
+  t += letters.length * 85 + 300;
+  later(t, startMultiball);
+}
+function startMultiball() {
+  lettersLocked = false;
+  multi = true;
+  [[250, 1], [830, -1]].forEach(([x, dir], k) => later(k * 350, () => { makeBall(x, 90, dir * 60, 0); sfx.launch(); }));
+}
+// Balls only leave by falling out of the bottom of the poster (squeezed between
+// the flippers, knocked through by another ball, or nudged out). During multiball
+// a ball that falls out is gone for good; only the very last ball comes back,
+// dropping in again at the top. Balls resting on the flippers stay put.
+function drainCheck() {
+  let lost = false;
+  for (let i = balls.length - 1; i >= 0; i--) {
+    const b = balls[i]; if (!b.gone) continue;
+    if (balls.length > 1) { b.el.remove(); balls.splice(i, 1); lost = true; sfx.drain(); }
+    else { Object.assign(b, { x: 880, y: 90, vx: -40, vy: 0, asc: false, gone: false, touch: new Map() }); sfx.launch(); }
+  }
+  if (lost && balls.length === 1 && multi) { multi = false; celebrating = false; }
+}
+
+/* ---------- sound (Web Audio, synthesised) ---------- */
+const sfx = (() => {
+  let ac = null, master = null, rollGain = null, noiseBuf = null;
+  let muted = false;
+  try { muted = localStorage.getItem('pnw-muted') === '1'; } catch (e) {}
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28]; // major pentatonic
+  function init() {
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ac = new AC();
+    master = ac.createGain(); master.gain.value = muted ? 0 : 0.9;
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+    master.connect(comp); comp.connect(ac.destination);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const lp = ac.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 220; lp.Q.value = 0.8;
+    rollGain = ac.createGain(); rollGain.gain.value = 0;
+    src.connect(lp); lp.connect(rollGain); rollGain.connect(master); src.start();
+  }
+  function env(g, t, peak, a, dcy) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dcy); }
+  function noise(t, dur, type, f, q, peak) {
+    const s = ac.createBufferSource(); s.buffer = noiseBuf;
+    const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+    const g = ac.createGain(); env(g, t, peak, 0.002, dur);
+    s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+  }
+  function tone(t, type, f0, f1, dur, peak, a = 0.003) {
+    const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain(); env(g, t, peak, a, dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + a + dur + 0.05);
+  }
+  const ok = () => ac && ac.state === 'running';
+  const note = i => 523.25 * Math.pow(2, SCALE[i % SCALE.length] / 12);
+  return {
+    init,
+    get muted() { return muted; },
+    setMuted(m) {
+      muted = m; try { localStorage.setItem('pnw-muted', m ? '1' : '0'); } catch (e) {}
+      if (master) master.gain.setTargetAtTime(m ? 0 : 0.9, ac.currentTime, 0.02);
+    },
+    flipUp(side) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.05, 'bandpass', side ? 1150 : 950, 1.4, 0.35); tone(t, 'sine', 150, 55, 0.09, 0.5); },
+    flipDown() { if (!ok()) return; noise(ac.currentTime, 0.03, 'bandpass', 700, 2, 0.12); },
+    launch() { if (!ok()) return; tone(ac.currentTime, 'triangle', 260, 780, 0.12, 0.16, 0.004); },
+    ping(i, hi) {
+      if (!ok()) return; const t = ac.currentTime, f = note(i) * (hi ? 1 : Math.pow(2, -5 / 12));
+      tone(t, 'triangle', f, f, 0.45, 0.16); tone(t, 'sine', f * 2.01, f * 2.01, 0.25, 0.05);
+    },
+    land(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.035, 'lowpass', 1400, 0.7, Math.min(0.3, v / 2500)); tone(t, 'sine', 120, 90, 0.05, Math.min(0.25, v / 3000)); },
+    wall(v) { if (!ok()) return; tone(ac.currentTime, 'sine', 210, 170, 0.06, Math.min(0.2, v / 4000)); },
+    clack(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.025, 'bandpass', 2400, 3, Math.min(0.25, v / 3000)); tone(t, 'sine', 900, 700, 0.03, Math.min(0.12, v / 6000)); },
+    nudge() { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 90, 42, 0.18, 0.6, 0.002); noise(t, 0.09, 'lowpass', 380, 0.7, 0.35); },
+    drain() { if (!ok()) return; const t = ac.currentTime; tone(t, 'triangle', 520, 130, 0.5, 0.14, 0.01); tone(t + 0.12, 'sine', 260, 70, 0.45, 0.12); },
+    pop() { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 700, 1400, 0.08, 0.15); tone(t + 0.07, 'sine', 1400, 1900, 0.06, 0.08); },
+    fanfare() {
+      if (!ok()) return; const t = ac.currentTime;
+      [0, 2, 4, 5, 7, 9, 10, 12].forEach((k, j) => { const f = note(k); tone(t + j * 0.075, 'triangle', f, f, 0.35, 0.17); tone(t + j * 0.075, 'square', f / 2, f / 2, 0.12, 0.03); });
+      const f = note(12); tone(t + 0.68, 'triangle', f, f, 0.9, 0.2); tone(t + 0.68, 'triangle', f * 1.5, f * 1.5, 0.9, 0.1);
+    },
+    roll(level) { if (!ac) return; rollGain.gain.setTargetAtTime(level, ac.currentTime, 0.06); },
+  };
+})();
+
+/* ---------- nudge ---------- */
+let nudgeT = -9, jolt = 0;
+function nudge() {
+  if (clock - nudgeT < 0.35) return;
+  nudgeT = clock; jolt = 1; sfx.nudge();
+  for (const b of balls) {
+    if (b.asc || b.pop) continue;
+    b.vy -= b.grounded ? 560 : 320;
+    b.vx += (Math.random() < 0.5 ? -1 : 1) * (150 + Math.random() * 130);
+  }
+}
+
+/* ---------- input ---------- */
+const hint = document.getElementById('hint');
+const coarse = matchMedia('(pointer: coarse)').matches;
+const HINT_KEYS = '← → flip · ↑ nudge';
+function setHint() {
+  if (coarse) hint.textContent = 'tap left · tap right · tap top to nudge';
+  else hint.textContent = document.hasFocus() ? HINT_KEYS : 'click the poster, then ← → flip · ↑ nudge';
+}
+setHint();
+addEventListener('focus', setHint); addEventListener('blur', setHint);
+try { window.focus(); } catch (e) {}
+let hinted = false;
+function setFlip(i, down) {
+  const f = flippers[i];
+  clearTimeout(f.rt);
+  if (!down && performance.now() - f.downAt < 110) { f.rt = setTimeout(() => setFlip(i, false), 110 - (performance.now() - f.downAt)); return; }
+  if (f.held === down) return;
+  f.held = down;
+  if (down) f.downAt = performance.now();
+  if (down) { sfx.flipUp(i); if (!hinted) { hinted = true; setTimeout(() => hint.classList.add('gone'), 2500); } }
+  else sfx.flipDown();
+}
+const keyMap = { ArrowLeft: [0], KeyA: [0], ShiftLeft: [0], ArrowRight: [1], KeyD: [1], ShiftRight: [1], Space: [0, 1] };
+addEventListener('keydown', e => {
+  if (e.code === 'KeyM') { sfx.init(); if (!celebrating) celebrate(); return; }   // testing shortcut: start multiball
+  if (e.code === 'KeyS') { muteBtn.click(); return; }
+  if (e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); sfx.init(); if (!e.repeat) nudge(); return; }
+  const m = keyMap[e.code]; if (!m) return;
+  e.preventDefault(); sfx.init(); askMotion(); m.forEach(i => setFlip(i, true));
+});
+addEventListener('keyup', e => { const m = keyMap[e.code]; if (m) { e.preventDefault(); m.forEach(i => setFlip(i, false)); } });
+addEventListener('blur', () => flippers.forEach((f, i) => setFlip(i, false)));
+
+const pointers = new Map();
+const scene = document.getElementById('scene');
+function refreshPointers() { const s = [false, false]; pointers.forEach(v => s[v] = true); s.forEach((d, i) => setFlip(i, d)); }
+scene.addEventListener('pointerdown', e => {
+  sfx.init(); askMotion(); try { window.focus(); } catch (err) {} setHint();
+  if (e.pointerType === 'touch') e.preventDefault();
+  if (e.clientY < innerHeight * 0.42) { nudge(); return; }
+  pointers.set(e.pointerId, e.clientX < innerWidth / 2 ? 0 : 1);
+  try { scene.setPointerCapture(e.pointerId); } catch (err) {}
+  refreshPointers();
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => scene.addEventListener(t, e => { if (pointers.delete(e.pointerId)) refreshPointers(); }));
+scene.addEventListener('contextmenu', e => e.preventDefault());
+
+const muteBtn = document.getElementById('mute');
+muteBtn.setAttribute('aria-pressed', String(sfx.muted));
+muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
+muteBtn.addEventListener('click', () => {
+  sfx.init(); const m = !sfx.muted; sfx.setMuted(m);
+  muteBtn.setAttribute('aria-pressed', String(m)); muteBtn.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
+});
+
+/* ---------- parallax (gyro on phones, pointer on desktop) ---------- */
+const par = { tx: 0, ty: 0, x: 0, y: 0, base: null, gyro: false };
+let motionAsked = false;
+function askMotion() {
+  if (motionAsked) return; motionAsked = true;
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === 'function') D.requestPermission().then(s => { if (s === 'granted') listenGyro(); }).catch(() => {});
+}
+function listenGyro() {
+  addEventListener('deviceorientation', e => {
+    if (e.beta == null || e.gamma == null) return;
+    par.gyro = true;
+    if (!par.base) par.base = { b: e.beta, g: e.gamma };
+    par.base.b += (e.beta - par.base.b) * 0.004; par.base.g += (e.gamma - par.base.g) * 0.004;
+    par.tx = Math.max(-1, Math.min(1, (e.gamma - par.base.g) / 20));
+    par.ty = Math.max(-1, Math.min(1, (e.beta - par.base.b) / 20));
+  });
+}
+if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission !== 'function') listenGyro();
+addEventListener('pointermove', e => {
+  if (par.gyro || e.pointerType !== 'mouse') return;
+  par.tx = (e.clientX / innerWidth) * 2 - 1; par.ty = (e.clientY / innerHeight) * 2 - 1;
+});
+document.addEventListener('mouseleave', () => { if (!par.gyro) { par.tx = 0; par.ty = 0; } });
+
+/* ---------- layout ---------- */
+const stage = document.getElementById('stage'), tilt = document.getElementById('tilt'), poster = document.getElementById('poster'), wood = document.getElementById('wood');
+function layout() {
+  const m = innerWidth < 600 ? 16 : 40;
+  const s = Math.min((innerWidth - m * 2) / 1110, (innerHeight - m * 2 - (coarse ? 24 : 16)) / 1954);
+  const w = 1110 * s, h = 1954 * s;
+  stage.style.width = w + 'px'; stage.style.height = h + 'px';
+  stage.style.marginLeft = -w / 2 + 'px'; stage.style.marginTop = -h / 2 - (coarse ? 8 : 0) + 'px';
+  poster.style.transform = `scale(${s})`;
+}
+addEventListener('resize', layout); layout();
+
+/* ---------- render ---------- */
+const DEG = 180 / Math.PI;
+function render(dt) {
+  for (const f of flippers) f.el.setAttribute('transform', `rotate(${(f.a * DEG).toFixed(3)} ${f.px} ${f.py})`);
+  let roll = 0;
+  for (let i = balls.length - 1; i >= 0; i--) {
+    const b = balls[i];
+    b.sq *= Math.exp(-13 * dt);
+    let k = 1;
+    if (b.pop) { b.pop += dt; k = Math.max(0, 1 - b.pop / 0.3); if (k === 0) { b.el.remove(); balls.splice(i, 1); continue; } }
+    const a = (b.sqA * DEG).toFixed(2), s = b.sq;
+    b.el.setAttribute('transform', `translate(${b.x.toFixed(2)} ${b.y.toFixed(2)}) rotate(${a}) scale(${((1 - s) * k).toFixed(3)} ${((1 + s * 0.6) * k).toFixed(3)}) rotate(${-a})`);
+    if (b.grounded) roll = Math.max(roll, Math.min(1, Math.hypot(b.vx, b.vy) / 1100) * 0.1);
+  }
+  sfx.roll(roll);
+  // parallax + nudge jolt
+  const m = reduceMotion ? 0 : 1;
+  par.x += (par.tx * m - par.x) * Math.min(1, dt * 5); par.y += (par.ty * m - par.y) * Math.min(1, dt * 5);
+  jolt *= Math.exp(-9 * dt);
+  const jy = -jolt * 14 * Math.cos((1 - jolt) * 9) * m;
+  wood.style.transform = `translate3d(${(-par.x * 16).toFixed(2)}px, ${(-par.y * 16).toFixed(2)}px, 0) scale(1.04)`;
+  tilt.style.transform = `translate3d(${(par.x * 7).toFixed(2)}px, ${(par.y * 7 + jy).toFixed(2)}px, 0) rotateY(${(par.x * 3.2).toFixed(3)}deg) rotateX(${(-par.y * 3.2 + jolt * 1.5 * m).toFixed(3)}deg)`;
+  tilt.style.boxShadow = `${(-par.x * 4).toFixed(1)}px ${(4 - par.y * 3).toFixed(1)}px 4px rgba(0,0,0,.25), ${(-par.x * 22).toFixed(1)}px ${(30 - par.y * 16).toFixed(1)}px 60px -20px rgba(0,0,0,.6)`;
+}
+
+/* ---------- loop ---------- */
+let last = performance.now(), acc = 0, stepN = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; acc += dt;
+  while (acc >= DT) {
+    stepFlippers(DT);
+    for (const b of balls) if (!b.pop && !b.gone) stepBall(b, DT, clock);
+    collideBalls();
+    if (++stepN % 4 === 0) for (const b of balls) touches(b, clock, toggle);
+    drainCheck();
+    clock += DT; acc -= DT;
+  }
+  render(dt);
+  requestAnimationFrame(frame);
+}
+window.__pnw = { buildDist, get DIST() { return DIST; }, balls, flippers, letters, setFlip, nudge, SURFS, SHOTS, chooseShot, stateBits, oddOnes, celebrate, get clock() { return clock; } };
+openingShow();
+requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
+})();
+</script>
+</body>
+</html>
