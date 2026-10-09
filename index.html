@@ -486,7 +486,7 @@ function celebrate() {
 }
 function startMultiball() {
   lettersLocked = false;
-  multi = true;
+  multi = true; sfx.ambLift(true);
   [[250, 1], [830, -1]].forEach(([x, dir], k) => later(k * 350, () => { makeBall(x, 90, dir * 60, 0); sfx.launch(); }));
 }
 // Balls only leave by falling out of the bottom of the poster (squeezed between
@@ -500,7 +500,7 @@ function drainCheck() {
     if (balls.length > 1) { b.el.remove(); balls.splice(i, 1); lost = true; sfx.drain(); }
     else { Object.assign(b, { x: 880, y: 90, vx: -40, vy: 0, asc: false, gone: false, touch: new Map() }); sfx.launch(); }
   }
-  if (lost && balls.length === 1 && multi) { multi = false; celebrating = false; }
+  if (lost && balls.length === 1 && multi) { multi = false; celebrating = false; sfx.ambLift(false); }
 }
 
 /* ---------- sound (Web Audio, synthesised) ---------- */
@@ -532,6 +532,60 @@ const sfx = (() => {
     const lp = ac.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 220; lp.Q.value = 0.8;
     rollGain = ac.createGain(); rollGain.gain.value = 0;
     src.connect(lp); lp.connect(rollGain); rollGain.connect(master); src.start();
+    startAmbience();
+  }
+
+  /* ---- ambience: a soft C + G drone with a slow pentatonic melody drifting on top ----
+     The letters ping C major pentatonic, and the same scale a fourth lower, so between
+     them they only ever play C D E G A B. A C/G drone and a C-pentatonic melody sit
+     under all of those without clashing. */
+  let amb = null;
+  function startAmbience() {
+    const bus = ac.createGain(); bus.gain.value = 0.0001;
+    bus.gain.setTargetAtTime(1, ac.currentTime + 0.3, 2.5);           // slow fade in
+    bus.connect(master);
+    const tone = ac.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 700; tone.Q.value = 0.4;
+    const lfo = ac.createOscillator(); lfo.frequency.value = 0.045;   // the drone "breathes" every ~20s
+    const lfoAmt = ac.createGain(); lfoAmt.gain.value = 260;
+    lfo.connect(lfoAmt); lfoAmt.connect(tone.frequency); lfo.start();
+    tone.connect(bus);
+    const voice = (f, type, level, detune = 0, wob = 0.03) => {
+      const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = detune;
+      const v = ac.createGain(); v.gain.value = level;
+      const l = ac.createOscillator(); l.frequency.value = wob + Math.random() * 0.03;
+      const la = ac.createGain(); la.gain.value = level * 0.45;
+      l.connect(la); la.connect(v.gain); l.start();
+      o.connect(v); v.connect(tone); o.start();
+      return v;
+    };
+    voice(65.41, 'sine', 0.11);                 // C2
+    voice(65.41, 'triangle', 0.035, 7);         // C2, slightly detuned shimmer
+    voice(98.00, 'sine', 0.06, -4, 0.021);      // G2
+    voice(130.81, 'triangle', 0.04, 3, 0.017);  // C3 (carries the drone on phone speakers)
+    voice(196.00, 'sine', 0.018, -3, 0.013);    // G3
+    const lift = ac.createGain(); lift.gain.value = 0; lift.connect(tone);   // E3, only during multiball
+    const lo = ac.createOscillator(); lo.type = 'sine'; lo.frequency.value = 164.81; lo.connect(lift); lo.start();
+    // a soft echo for the melody
+    const delay = ac.createDelay(2); delay.delayTime.value = 0.62;
+    const fb = ac.createGain(); fb.gain.value = 0.38;
+    const wet = ac.createGain(); wet.gain.value = 0.5;
+    delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(bus);
+    const mel = ac.createGain(); mel.connect(bus); mel.connect(delay);
+    const MEL = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];   // C4 D4 E4 G4 A4 C5
+    let idx = 2;
+    function note() {
+      idx = Math.max(0, Math.min(MEL.length - 1, idx + [-2, -1, -1, 1, 1, 2][Math.random() * 6 | 0]));
+      const t = ac.currentTime + 0.05, f = MEL[idx];
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const o2 = ac.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f * 2;
+      const e = ac.createGain();
+      e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(0.045, t + 1.2); e.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
+      const h = ac.createGain(); h.gain.value = 0.12;
+      o.connect(e); o2.connect(h); h.connect(e); e.connect(mel);
+      o.start(t); o2.start(t); o.stop(t + 6); o2.stop(t + 6);
+      amb.timer = setTimeout(note, 3200 + Math.random() * 4200 + (Math.random() < 0.25 ? 4000 : 0));   // unhurried, with the odd longer rest
+    }
+    amb = { lift, timer: setTimeout(note, 4500) };
   }
   function unlock() {
     try {   // a one-sample silent sound played inside the tap unlocks audio on iOS
@@ -541,7 +595,11 @@ const sfx = (() => {
       unlocked = ac.state === 'running';
     } catch (e) {}
   }
-  document.addEventListener('visibilitychange', () => { if (ac && !document.hidden && ac.state !== 'running') ac.resume().catch(() => {}); });
+  document.addEventListener('visibilitychange', () => {
+    if (!ac) return;
+    if (document.hidden) ac.suspend().catch(() => {});   // no drone playing from a background tab
+    else if (ac.state !== 'running') ac.resume().catch(() => {});
+  });
   function env(g, t, peak, a, dcy) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dcy); }
   function noise(t, dur, type, f, q, peak) {
     const s = ac.createBufferSource(); s.buffer = noiseBuf;
@@ -582,6 +640,7 @@ const sfx = (() => {
       [0, 2, 4, 5, 7, 9, 10, 12].forEach((k, j) => { const f = note(k); tone(t + j * 0.075, 'triangle', f, f, 0.35, 0.17); tone(t + j * 0.075, 'square', f / 2, f / 2, 0.12, 0.03); });
       const f = note(12); tone(t + 0.68, 'triangle', f, f, 0.9, 0.2); tone(t + 0.68, 'triangle', f * 1.5, f * 1.5, 0.9, 0.1);
     },
+    ambLift(on) { if (amb) amb.lift.gain.setTargetAtTime(on ? 0.035 : 0, ac.currentTime, 1.5); },   // brighten the drone during multiball
     roll(level) { if (!ac) return; rollGain.gain.setTargetAtTime(level, ac.currentTime, 0.06); },
   };
 })();
