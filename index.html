@@ -175,7 +175,7 @@ function toggle(i) {
   if (lettersLocked) return;
   const L = letters[i];
   L.isA = !L.isA; paint(L); flash(L);
-  sfx.ping(i, L.isA);
+  sfx.ping(i, L.isA, ((L.x0 + L.x1) / 2 / 1080 - 0.5) * 1.2);
   if (letters.every(l => l.isA === L.isA)) {
     if (multi) { if (!jp.on) superJackpot(); }   // all one colour again during multiball
     else if (!celebrating) celebrate();
@@ -496,7 +496,7 @@ function renderJackpot(dt) {
   if (!jp.on) return;
   jp.t += dt;
   const u = Math.min(1, jp.t / JP_T);
-  const speed = reduceMotion ? 0 : 35 + 300 * Math.sin(Math.PI * u);   // degrees per second: eases up, then winds down
+  const speed = reduceMotion ? 0 : 12;   // a steady 2 rpm
   jp.angle = (jp.angle + speed * dt) % 360;
   const fade = Math.min(1, jp.t / 0.5) * Math.min(1, Math.max(0, (JP_T - jp.t) / 1.3));
   const s = 1.12 + 0.05 * Math.sin(jp.t * 3);
@@ -551,10 +551,17 @@ function drainCheck() {
 
 /* ---------- sound (Web Audio, synthesised) ---------- */
 const sfx = (() => {
+  /* Sound: synthesised in Web Audio, aiming for warm, wonky, late-night electronica
+     (think Four Tet / Flying Lotus / Fred again..): electric-piano tines with a little
+     tape wobble, a swung dub echo, a big soft room, chords that pump on the beat,
+     sparse kalimba plucks and a bed of vinyl crackle, all through gentle tape
+     saturation. Everything sits in C major without F, the six notes the letters play. */
   let ac = null, master = null, rollGain = null, noiseBuf = null;
+  let verb = null, dly = null, wow = null, music = null, padTone = null;
   let muted = false;
   try { muted = localStorage.getItem('pnw-muted') === '1'; } catch (e) {}
-  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28]; // major pentatonic
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28]; // C major pentatonic, one per letter
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
   let unlocked = false;
   // Called from every tap and key press. iPhones only allow sound to start from
   // a finished tap (touchend / pointerup / click), and mute web audio with the
@@ -569,70 +576,159 @@ const sfx = (() => {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     ac = new AC();
     unlock();
+    // master -> tape saturation -> soft top end -> glue compressor -> out
     master = ac.createGain(); master.gain.value = muted ? 0 : 0.9;
-    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
-    master.connect(comp); comp.connect(ac.destination);
+    const sat = ac.createWaveShaper(); sat.curve = satCurve(1.8); sat.oversample = '2x';
+    const tape = ac.createBiquadFilter(); tape.type = 'lowpass'; tape.frequency.value = 10500; tape.Q.value = 0.3;
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.2;
+    master.connect(sat); sat.connect(tape); tape.connect(comp); comp.connect(ac.destination);
     noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    // tape wow + flutter, applied to the pitch of every musical note
+    wow = ac.createGain(); wow.gain.value = 1;
+    const w1 = ac.createOscillator(); w1.frequency.value = 0.55; const w1g = ac.createGain(); w1g.gain.value = 7;
+    const w2 = ac.createOscillator(); w2.frequency.value = 5.3; const w2g = ac.createGain(); w2g.gain.value = 2;
+    w1.connect(w1g); w1g.connect(wow); w2.connect(w2g); w2g.connect(wow); w1.start(); w2.start();
+    // big soft room
+    verb = ac.createConvolver(); verb.buffer = impulse(3.2, 2.6);
+    const vPre = ac.createBiquadFilter(); vPre.type = 'lowpass'; vPre.frequency.value = 5200;
+    const vRet = ac.createGain(); vRet.gain.value = 0.8;
+    vPre.connect(verb); verb.connect(vRet); vRet.connect(master);
+    verb.input = vPre;
+    // swung dub echo: dotted eighth at 84 bpm, darker each repeat
+    dly = ac.createDelay(2); dly.delayTime.value = 0.75 * BEAT;
+    const fb = ac.createGain(); fb.gain.value = 0.4;
+    const fLp = ac.createBiquadFilter(); fLp.type = 'lowpass'; fLp.frequency.value = 2400;
+    const fHp = ac.createBiquadFilter(); fHp.type = 'highpass'; fHp.frequency.value = 280;
+    const dRet = ac.createGain(); dRet.gain.value = 0.55;
+    dly.connect(fLp); fLp.connect(fHp); fHp.connect(fb); fb.connect(dly);
+    fHp.connect(dRet); dRet.connect(master); dRet.connect(vPre);
+    // rolling ball hum
     const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
     const lp = ac.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 220; lp.Q.value = 0.8;
     rollGain = ac.createGain(); rollGain.gain.value = 0;
     src.connect(lp); lp.connect(rollGain); rollGain.connect(master); src.start();
-    startAmbience();
+    startMusic();
+  }
+  function satCurve(k) {
+    const n = 2048, c = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(k * x) / Math.tanh(k); }
+    return c;
+  }
+  function impulse(sec, decay) {
+    const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay); }
+    return b;
+  }
+  // route a voice to the dry bus plus echo and room sends, optionally panned
+  function out(node, { pan = 0, to = master, echo = 0, room = 0 } = {}) {
+    let n = node;
+    if (pan && ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); node.connect(p); n = p; }
+    n.connect(to);
+    if (echo) { const s = ac.createGain(); s.gain.value = echo; n.connect(s); s.connect(dly); }
+    if (room) { const s = ac.createGain(); s.gain.value = room; n.connect(s); s.connect(verb.input); }
+  }
+  // electric-piano tine (FM): bell-ish attack that mellows out
+  function ep(t, f, vel, opt) {
+    const c = ac.createOscillator(); c.frequency.value = f;
+    const m = ac.createOscillator(); m.frequency.value = f;
+    const mi = ac.createGain(); mi.gain.setValueAtTime(f * 2.4 * vel + 1, t); mi.gain.exponentialRampToValueAtTime(f * 0.15 + 1, t + 0.7);
+    m.connect(mi); mi.connect(c.frequency);
+    const tine = ac.createOscillator(); tine.frequency.value = f * 7.02;
+    const tg = ac.createGain(); tg.gain.setValueAtTime(0.0001, t); tg.gain.exponentialRampToValueAtTime(0.18 * vel, t + 0.002); tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    const a = ac.createGain(); a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(vel, t + 0.004); a.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+    c.connect(a); tine.connect(tg); tg.connect(a);
+    [c, m, tine].forEach(o => { wow.connect(o.detune); o.start(t); o.stop(t + 2.5); });
+    out(a, opt);
+  }
+  // kalimba pluck: short, woody, a little inharmonic
+  function pluck(t, f, vel, opt) {
+    const c = ac.createOscillator(); c.frequency.setValueAtTime(f * 1.012, t); c.frequency.exponentialRampToValueAtTime(f, t + 0.03);
+    const p = ac.createOscillator(); p.frequency.value = f * 5.4;
+    const pg = ac.createGain(); pg.gain.setValueAtTime(0.0001, t); pg.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.002); pg.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    const a = ac.createGain(); a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(vel, t + 0.003); a.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    c.connect(a); p.connect(pg); pg.connect(a);
+    [c, p].forEach(o => { wow.connect(o.detune); o.start(t); o.stop(t + 1); });
+    out(a, opt);
   }
 
-  /* ---- ambience: a soft C + G drone with a slow pentatonic melody drifting on top ----
-     The letters ping C major pentatonic, and the same scale a fourth lower, so between
-     them they only ever play C D E G A B. A C/G drone and a C-pentatonic melody sit
-     under all of those without clashing. */
-  let amb = null;
-  function startAmbience() {
-    const bus = ac.createGain(); bus.gain.value = 0.0001;
-    bus.gain.setTargetAtTime(1, ac.currentTime + 0.3, 2.5);           // slow fade in
-    bus.connect(master);
-    const tone = ac.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 700; tone.Q.value = 0.4;
-    const lfo = ac.createOscillator(); lfo.frequency.value = 0.045;   // the drone "breathes" every ~20s
-    const lfoAmt = ac.createGain(); lfoAmt.gain.value = 260;
-    lfo.connect(lfoAmt); lfoAmt.connect(tone.frequency); lfo.start();
-    tone.connect(bus);
-    const voice = (f, type, level, detune = 0, wob = 0.03) => {
-      const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = detune;
-      const v = ac.createGain(); v.gain.value = level;
-      const l = ac.createOscillator(); l.frequency.value = wob + Math.random() * 0.03;
-      const la = ac.createGain(); la.gain.value = level * 0.45;
-      l.connect(la); la.connect(v.gain); l.start();
-      o.connect(v); v.connect(tone); o.start();
-      return v;
-    };
-    voice(65.41, 'sine', 0.11);                 // C2
-    voice(65.41, 'triangle', 0.035, 7);         // C2, slightly detuned shimmer
-    voice(98.00, 'sine', 0.06, -4, 0.021);      // G2
-    voice(130.81, 'triangle', 0.04, 3, 0.017);  // C3 (carries the drone on phone speakers)
-    voice(196.00, 'sine', 0.018, -3, 0.013);    // G3
-    const lift = ac.createGain(); lift.gain.value = 0; lift.connect(tone);   // E3, only during multiball
-    const lo = ac.createOscillator(); lo.type = 'sine'; lo.frequency.value = 164.81; lo.connect(lift); lo.start();
-    // a soft echo for the melody
-    const delay = ac.createDelay(2); delay.delayTime.value = 0.62;
-    const fb = ac.createGain(); fb.gain.value = 0.38;
-    const wet = ac.createGain(); wet.gain.value = 0.5;
-    delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(bus);
-    const mel = ac.createGain(); mel.connect(bus); mel.connect(delay);
-    const MEL = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];   // C4 D4 E4 G4 A4 C5
-    let idx = 2;
-    function note() {
-      idx = Math.max(0, Math.min(MEL.length - 1, idx + [-2, -1, -1, 1, 1, 2][Math.random() * 6 | 0]));
-      const t = ac.currentTime + 0.05, f = MEL[idx];
-      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
-      const o2 = ac.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f * 2;
-      const e = ac.createGain();
-      e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(0.045, t + 1.2); e.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
-      const h = ac.createGain(); h.gain.value = 0.12;
-      o.connect(e); o2.connect(h); h.connect(e); e.connect(mel);
-      o.start(t); o2.start(t); o.stop(t + 6); o2.stop(t + 6);
-      amb.timer = setTimeout(note, 3200 + Math.random() * 4200 + (Math.random() < 0.25 ? 4000 : 0));   // unhurried, with the odd longer rest
-    }
-    amb = { lift, timer: setTimeout(note, 4500) };
+  /* ---- the bed: four chords at 84 bpm, pumping on the beat ---- */
+  const BPM = 84, BEAT = 60 / BPM, SIX = BEAT / 4;
+  const CHORDS = [   // root (bass) + voicing, MIDI notes; no F anywhere
+    { bass: 36, notes: [48, 55, 59, 62, 64] },   // Cmaj9
+    { bass: 33, notes: [45, 52, 55, 59, 60] },   // Am9
+    { bass: 40, notes: [52, 59, 62, 67, 69] },   // Em11
+    { bass: 31, notes: [55, 59, 62, 64, 69] },   // G6/9
+  ];
+  let mus = null;
+  function startMusic() {
+    music = ac.createGain(); music.gain.value = 1;              // this one pumps
+    const fadeIn = ac.createGain(); fadeIn.gain.setValueAtTime(0.0001, ac.currentTime); fadeIn.gain.exponentialRampToValueAtTime(0.36, ac.currentTime + 5);   // the bed sits well under the game
+    music.connect(fadeIn); fadeIn.connect(master);
+    padTone = ac.createBiquadFilter(); padTone.type = 'lowpass'; padTone.frequency.value = 850; padTone.Q.value = 0.5;
+    const pLfo = ac.createOscillator(); pLfo.frequency.value = 0.05; const pAmt = ac.createGain(); pAmt.gain.value = 250;
+    pLfo.connect(pAmt); pAmt.connect(padTone.frequency); pLfo.start();
+    const padOut = ac.createGain(); padOut.gain.value = 1; padTone.connect(padOut);
+    out(padOut, { to: music, room: 0.35 });
+    // vinyl: sparse crackle + a whisper of hiss (not pumped)
+    const len = ac.sampleRate * 4, vb = ac.createBuffer(1, len, ac.sampleRate), vd = vb.getChannelData(0);
+    for (let i = 0; i < len; i++) { vd[i] = (Math.random() * 2 - 1) * 0.012; if (Math.random() < 14 / ac.sampleRate) { const amp = 0.2 + Math.random() * 0.8, s = Math.random() < 0.5 ? -1 : 1; for (let k = 0; k < 24 && i + k < len; k++) vd[i + k] += s * amp * Math.exp(-k / 4); } }
+    const vs = ac.createBufferSource(); vs.buffer = vb; vs.loop = true;
+    const vhp = ac.createBiquadFilter(); vhp.type = 'highpass'; vhp.frequency.value = 900;
+    const vlp = ac.createBiquadFilter(); vlp.type = 'lowpass'; vlp.frequency.value = 6000;
+    const vg = ac.createGain(); vg.gain.setValueAtTime(0.0001, ac.currentTime); vg.gain.exponentialRampToValueAtTime(0.05, ac.currentTime + 4);
+    vs.connect(vhp); vhp.connect(vlp); vlp.connect(vg); vg.connect(master); vs.start();
+    mus = { next: ac.currentTime + 0.3, step: 0, chord: -1, lift: false, mel: 2, padVoices: [], bass: null };
+    mus.timer = setInterval(schedule, 40);
   }
+  function schedule() {
+    if (!ac || ac.state !== 'running') return;
+    const now = ac.currentTime;
+    if (mus.next < now - 0.25) mus.next = now + 0.05;            // came back from a pause: resync
+    while (mus.next < now + 0.15) { sixteenth(mus.step, mus.next); mus.next += SIX; mus.step++; }
+  }
+  function sixteenth(s, t) {
+    const swing = (s % 2 === 1) ? SIX * 0.22 : 0;              // lazy MPC-style swing on the off 16ths
+    const at = t + swing;
+    if (s % 4 === 0) {                                          // pump on every beat
+      music.gain.setValueAtTime(0.5, t); music.gain.linearRampToValueAtTime(1, t + BEAT * 0.48);
+    }
+    if (s % 32 === 0) chord((s / 32) % CHORDS.length, t);
+    if (s % 32 === 22) { const C = CHORDS[mus.chord]; C.notes.slice(1, 4).forEach((n, k) => ep(at + k * 0.012, mtof(n), 0.035, { to: music, pan: (k - 1) * 0.3, echo: 0.25, room: 0.3 })); }
+    // sparse kalimba melody from the chord tones, an octave or two up
+    const p = mus.lift ? 0.16 : 0.08;
+    if (Math.random() < p) {
+      const C = CHORDS[mus.chord], pool = C.notes.map(n => n + 12).concat(C.notes.slice(2).map(n => n + 24));
+      mus.mel = Math.max(0, Math.min(pool.length - 1, mus.mel + [-2, -1, 1, 2][Math.random() * 4 | 0]));
+      const f = mtof(pool[mus.mel]), pan = Math.random() * 1.2 - 0.6;
+      pluck(at, f, 0.06, { to: music, pan, echo: 0.45, room: 0.35 });
+      if (Math.random() < 0.15) for (let k = 1; k < 4; k++) pluck(at + k * SIX / 2, f, 0.06 * (1 - k * 0.22), { to: music, pan, echo: 0.3, room: 0.3 });   // chopped stutter
+    }
+  }
+  function chord(i, t) {
+    mus.chord = i; const C = CHORDS[i];
+    // let the old pad fade under the new one
+    mus.padVoices.forEach(v => { v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0.0001, t, 0.8); v.o.forEach(o => o.stop(t + 4)); });
+    mus.padVoices = C.notes.map((n, k) => {
+      const f = mtof(n), g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.022, t + 1.4);
+      const o = [ac.createOscillator(), ac.createOscillator()];
+      o[0].type = 'triangle'; o[1].type = 'sawtooth'; o[0].frequency.value = f; o[1].frequency.value = f; o[1].detune.value = 9 + k;
+      const og = ac.createGain(); og.gain.value = 0.25; o[1].connect(og); og.connect(g); o[0].connect(g);
+      o.forEach(x => { wow.connect(x.detune); x.start(t); });
+      g.connect(padTone);
+      return { g, o };
+    });
+    // a soft electric-piano chord on the change
+    C.notes.forEach((n, k) => ep(t + k * 0.018, mtof(n), 0.045, { to: music, pan: (k - 2) * 0.18, echo: 0.2, room: 0.35 }));
+    // sub bass on the root
+    if (mus.bass) { mus.bass.g.gain.setTargetAtTime(0.0001, t, 0.15); mus.bass.o.stop(t + 1); }
+    const bo = ac.createOscillator(); bo.type = 'sine'; bo.frequency.value = mtof(C.bass + 12);
+    const bg = ac.createGain(); bg.gain.setValueAtTime(0.0001, t); bg.gain.exponentialRampToValueAtTime(0.1, t + 0.08);
+    bo.connect(bg); bg.connect(music); bo.start(t);
+    mus.bass = { o: bo, g: bg };
+  }
+
   function unlock() {
     try {   // a one-sample silent sound played inside the tap unlocks audio on iOS
       const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050);
@@ -643,24 +739,26 @@ const sfx = (() => {
   }
   document.addEventListener('visibilitychange', () => {
     if (!ac) return;
-    if (document.hidden) ac.suspend().catch(() => {});   // no drone playing from a background tab
+    if (document.hidden) ac.suspend().catch(() => {});   // nothing playing from a background tab
     else if (ac.state !== 'running') ac.resume().catch(() => {});
   });
   function env(g, t, peak, a, dcy) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dcy); }
-  function noise(t, dur, type, f, q, peak) {
+  function noise(t, dur, type, f, q, peak, opt) {
     const s = ac.createBufferSource(); s.buffer = noiseBuf;
     const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
     const g = ac.createGain(); env(g, t, peak, 0.002, dur);
-    s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+    s.connect(fl); fl.connect(g); out(g, opt); s.start(t, Math.random()); s.stop(t + dur + 0.05);
   }
-  function tone(t, type, f0, f1, dur, peak, a = 0.003) {
+  function tone(t, type, f0, f1, dur, peak, a = 0.003, opt) {
     const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
     const g = ac.createGain(); env(g, t, peak, a, dur);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t + a + dur + 0.05);
+    o.connect(g); out(g, opt); o.start(t); o.stop(t + a + dur + 0.05);
   }
   const ok = () => ac && ac.state === 'running';
   const note = i => 523.25 * Math.pow(2, SCALE[i % SCALE.length] / 12);
+  // electric-piano arpeggio through the echo, used by the fanfares
+  function arp(t, notes, step, vel) { notes.forEach((n, j) => ep(t + j * step + (j % 2 ? step * 0.22 : 0), mtof(n), vel, { pan: Math.sin(j) * 0.5, echo: 0.4, room: 0.45 })); }
   return {
     init,
     get muted() { return muted; },
@@ -668,32 +766,46 @@ const sfx = (() => {
       muted = m; try { localStorage.setItem('pnw-muted', m ? '1' : '0'); } catch (e) {}
       if (master) master.gain.setTargetAtTime(m ? 0 : 0.9, ac.currentTime, 0.02);
     },
-    flipUp(side) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.05, 'bandpass', side ? 1150 : 950, 1.4, 0.35); tone(t, 'sine', 150, 55, 0.09, 0.5); },
-    flipDown() { if (!ok()) return; noise(ac.currentTime, 0.03, 'bandpass', 700, 2, 0.12); },
-    launch() { if (!ok()) return; tone(ac.currentTime, 'triangle', 260, 780, 0.12, 0.16, 0.004); },
-    ping(i, hi) {
-      if (!ok()) return; const t = ac.currentTime, f = note(i) * (hi ? 1 : Math.pow(2, -5 / 12));
-      tone(t, 'triangle', f, f, 0.45, 0.16); tone(t, 'sine', f * 2.01, f * 2.01, 0.25, 0.05);
+    // flipper: a dusty little kick with a soft click
+    flipUp(side) { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 140, 46, 0.11, 0.55, 0.002); noise(t, 0.025, 'lowpass', 2200, 0.7, 0.18, { pan: side ? 0.35 : -0.35 }); },
+    flipDown() { if (!ok()) return; noise(ac.currentTime, 0.03, 'bandpass', 600, 1.5, 0.08); },
+    // launch: a short tape whoosh up
+    launch() { if (!ok()) return; const t = ac.currentTime; noise(t, 0.22, 'bandpass', 900, 0.9, 0.09, { room: 0.3 }); tone(t, 'sine', 220, 660, 0.16, 0.09, 0.02, { room: 0.3 }); },
+    // letters: electric-piano tines, panned to where the letter sits
+    ping(i, hi, pan = 0) {
+      if (!ok()) return; const t = ac.currentTime, f = note(i) * (hi ? 1 : Math.pow(2, -5 / 12)) / 2;
+      ep(t, f, 0.12, { pan, echo: 0.3, room: 0.35 });
     },
-    land(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.035, 'lowpass', 1400, 0.7, Math.min(0.3, v / 2500)); tone(t, 'sine', 120, 90, 0.05, Math.min(0.25, v / 3000)); },
-    wall(v) { if (!ok()) return; tone(ac.currentTime, 'sine', 210, 170, 0.06, Math.min(0.2, v / 4000)); },
-    clack(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.025, 'bandpass', 2400, 3, Math.min(0.25, v / 3000)); tone(t, 'sine', 900, 700, 0.03, Math.min(0.12, v / 6000)); },
-    nudge() { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 90, 42, 0.18, 0.6, 0.002); noise(t, 0.09, 'lowpass', 380, 0.7, 0.35); },
-    drain() { if (!ok()) return; const t = ac.currentTime; tone(t, 'triangle', 520, 130, 0.5, 0.14, 0.01); tone(t + 0.12, 'sine', 260, 70, 0.45, 0.12); },
-    pop() { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 700, 1400, 0.08, 0.15); tone(t + 0.07, 'sine', 1400, 1900, 0.06, 0.08); },
-    jackpot() {
-      if (!ok()) return; const t = ac.currentTime;
-      tone(t, 'sine', 130.81, 65.41, 0.6, 0.5, 0.004);                          // low boom
-      const run = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 21, 19, 16, 14, 12];  // up two octaves and back
-      for (let r = 0; r < 2; r++) run.forEach((k, j) => { const f = 261.63 * Math.pow(2, k / 12), at = t + 0.1 + r * 1.3 + j * 0.075; tone(at, 'triangle', f, f, 0.28, 0.13); });
-      [0, 4, 7, 12].forEach(k => { const f = 523.25 * Math.pow(2, k / 12); tone(t + 2.7, 'triangle', f, f, 1.6, 0.1); tone(t + 2.7, 'sine', f / 2, f / 2, 1.6, 0.06); });
-    },
+    land(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.035, 'lowpass', 1100, 0.7, Math.min(0.22, v / 3000)); tone(t, 'sine', 110, 70, 0.06, Math.min(0.25, v / 3000)); },
+    wall(v) { if (!ok()) return; tone(ac.currentTime, 'sine', 200, 150, 0.07, Math.min(0.18, v / 4000)); },
+    clack(v) { if (!ok()) return; const t = ac.currentTime; noise(t, 0.02, 'bandpass', 2600, 3, Math.min(0.18, v / 3500), { room: 0.2 }); },
+    nudge() { if (!ok()) return; const t = ac.currentTime; tone(t, 'sine', 85, 38, 0.22, 0.65, 0.002); noise(t, 0.1, 'lowpass', 320, 0.7, 0.3); },
+    // a lost ball: a tape-stop slur down
+    drain() { if (!ok()) return; const t = ac.currentTime; tone(t, 'triangle', 392, 49, 0.7, 0.12, 0.01, { echo: 0.3, room: 0.4 }); },
+    pop() { if (!ok()) return; const t = ac.currentTime; pluck(t, 1046.5, 0.08, { echo: 0.3 }); pluck(t + 0.06, 1568, 0.05, { echo: 0.3 }); },
+    // multiball: Cmaj9 rippling up two octaves, then a held chord
     fanfare() {
-      if (!ok()) return; const t = ac.currentTime;
-      [0, 2, 4, 5, 7, 9, 10, 12].forEach((k, j) => { const f = note(k); tone(t + j * 0.075, 'triangle', f, f, 0.35, 0.17); tone(t + j * 0.075, 'square', f / 2, f / 2, 0.12, 0.03); });
-      const f = note(12); tone(t + 0.68, 'triangle', f, f, 0.9, 0.2); tone(t + 0.68, 'triangle', f * 1.5, f * 1.5, 0.9, 0.1);
+      if (!ok()) return; const t = ac.currentTime + 0.02;
+      arp(t, [48, 55, 59, 62, 64, 67, 71, 74, 76, 79], SIX, 0.08);
+      tone(t, 'sine', 65.41, 65.41, 1.6, 0.22, 0.02);
+      [60, 64, 67, 71, 74].forEach((n, k) => ep(t + 10 * SIX + k * 0.02, mtof(n), 0.06, { pan: (k - 2) * 0.2, echo: 0.35, room: 0.5 }));
     },
-    ambLift(on) { if (amb) amb.lift.gain.setTargetAtTime(on ? 0.035 : 0, ac.currentTime, 1.5); },   // brighten the drone during multiball
+    // super jackpot: a riser into a big downbeat, then arpeggios over all four chords
+    jackpot() {
+      if (!ok()) return; const t = ac.currentTime + 0.02, rise = 1.1;
+      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2; f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(5000, t + rise);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + rise - 0.02); g.gain.linearRampToValueAtTime(0, t + rise);
+      s.connect(f); f.connect(g); out(g, { room: 0.4 }); s.start(t); s.stop(t + rise + 0.05);
+      const d = t + rise;
+      tone(d, 'sine', 110, 40, 0.8, 0.6, 0.002);                                    // sub drop
+      [48, 55, 59, 62, 64, 71].forEach((n, k) => ep(d + k * 0.015, mtof(n), 0.08, { pan: (k - 2.5) * 0.2, echo: 0.4, room: 0.5 }));
+      CHORDS.forEach((C, ci) => arp(d + BEAT + ci * BEAT * 1.5, C.notes.map(n => n + 12), SIX / 1.5, 0.06));
+    },
+    ambLift(on) {   // during multiball and the jackpot: the pads open up and the kalimba gets chattier
+      if (!mus) return; mus.lift = on;
+      padTone.frequency.setTargetAtTime(on ? 1900 : 850, ac.currentTime, 1.2);
+    },
     roll(level) { if (!ac) return; rollGain.gain.setTargetAtTime(level, ac.currentTime, 0.06); },
   };
 })();
