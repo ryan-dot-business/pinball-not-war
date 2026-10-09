@@ -157,10 +157,26 @@ let clock = 0;                  // game time in seconds
 const ORDER = ['P1','I1','N1','B1','A1','L1','L2','N2','O1','T1','W1','A2','R1'];
 const ROW = { P1:1, I1:1, N1:1, B1:2, A1:2, L1:2, L2:2, N2:3, O1:3, T1:3, W1:4, A2:4, R1:4 };
 const hitCtx = document.createElement('canvas').getContext('2d');
+// Bounding box straight from the path data (absolute M/L/H/V/C/S/Q/T/Z, as Figma exports).
+// getBBox() needs the page to be laid out, and returns zeros if the poster loads while
+// hidden (a background tab, or a viewer that loads it before showing it).
+function pathBox(d) {
+  const tok = d.match(/[A-Za-z]|-?\d*\.?\d+(?:e-?\d+)?/g);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, cmd = 'M', i = 0, cx = 0, cy = 0;
+  const pt = (x, y) => { cx = x; cy = y; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+  while (i < tok.length) {
+    if (/[A-Za-z]/.test(tok[i])) { cmd = tok[i++]; if (cmd === 'Z' || cmd === 'z') continue; }
+    const n = () => parseFloat(tok[i++]);
+    if (cmd === 'H') pt(n(), cy);
+    else if (cmd === 'V') pt(cx, n());
+    else pt(n(), n());
+  }
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
 const letters = ORDER.map((k, i) => {
   const el = document.getElementById('letter-' + k);
   const start = el.getAttribute('fill').toUpperCase() === COL_A;
-  const bb = el.getBBox(), pad = R + 8;
+  const bb = pathBox(el.getAttribute('d')), pad = R + 8;
   return { k, i, el, row: ROW[k], start, isA: start, path: new Path2D(el.getAttribute('d')),
     x0: bb.x - pad, x1: bb.x + bb.width + pad, y0: bb.y - pad, y1: bb.y + bb.height + pad };
 });
@@ -474,8 +490,8 @@ function useGuide(k) {   // each word bows out the first time you do what it say
 const jpLayer = document.getElementById('jackpot'), jpSpin = document.getElementById('jackpotSpin');
 // The sunburst's empty hole (radius ~116 in the artwork, at its centre) is centred on
 // the O and scaled so the hole sits just outside it; it spins around that point.
-const jpO = document.getElementById('letter-O1').getBBox();
-const JP_X = jpO.x + jpO.width / 2, JP_Y = jpO.y + jpO.height / 2, JP_S = 1.55, JP_T = 6.9;
+const JP_X = 577.09, JP_Y = 968.88,   // the centre of the O (measured from its outline; fixed so it never depends on page layout)
+      JP_S = 1.55, JP_T = 6.9;
 const jpMaskC = document.getElementById('jpMaskC');
 jpMaskC.setAttribute('cx', JP_X); jpMaskC.setAttribute('cy', JP_Y);
 const JP_R = Math.hypot(Math.max(JP_X, 1080 - JP_X), Math.max(JP_Y, 1930 - JP_Y)) + 40;   // enough to cover the poster
