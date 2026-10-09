@@ -527,7 +527,8 @@ function renderJackpot(dt) {
   const k = Math.min(1 - Math.pow(1 - grow, 3), shrink < 1 ? 1 - Math.pow(1 - shrink, 3) : 1);
   jpMaskC.setAttribute('r', (JP_R * k).toFixed(1));
   jpSpin.setAttribute('transform', `translate(${JP_X.toFixed(2)} ${JP_Y.toFixed(2)}) rotate(${jp.angle.toFixed(2)}) scale(${JP_S})`);
-  if (jp.t >= JP_T) { jp.on = false; jpLayer.style.display = 'none'; jpMaskC.setAttribute('r', 0); if (!multi) sfx.ambLift(false); setTheme(level + 1); }   // next level
+  if (!jp.closing && jp.t >= JP_T - OUT) { jp.closing = true; closeIntoTheme(level + 1); }   // next level arrives with the closing circle
+  if (jp.t >= JP_T) { jp.on = false; jp.closing = false; endClose(); jpLayer.style.display = 'none'; jpMaskC.setAttribute('r', 0); if (!multi) sfx.ambLift(false); }
 }
 
 /* ---------- levels: colour themes ----------
@@ -564,6 +565,30 @@ function setTheme(i) {
   level = i; themeVars(pfEl, level);
   wipe.snap = snap; wipe.t = 0; wipeC.setAttribute('r', 0);
   sfx.levelUp(level);
+}
+// Jackpot close: the new theme goes on everywhere at once, and the old one (background,
+// spinning sunburst, letters, flippers) lives on only inside the shrinking circle.
+let closeSnap = null;
+function closeIntoTheme(i) {
+  i = ((i % THEMES.length) + THEMES.length) % THEMES.length;
+  const snap = document.createElementNS(SVGNS, 'g');
+  snap.setAttribute('clip-path', 'url(#jpMask)'); snap.setAttribute('aria-hidden', 'true'); snap.style.pointerEvents = 'none';
+  themeVars(snap, level);
+  const clone = id => { const c = document.getElementById(id).cloneNode(true); c.removeAttribute('id'); c.querySelectorAll('[id]').forEach(n => n.removeAttribute('id')); c.querySelectorAll('.flash, .snap').forEach(n => n.classList.remove('flash', 'snap')); return c; };
+  snap.appendChild(clone('pfBg'));
+  snap.appendChild(jpLayer);                 // the live sunburst keeps spinning, in the old colours
+  snap.appendChild(clone('Targets'));
+  snap.appendChild(clone('Flippers'));
+  pfEl.insertBefore(snap, document.getElementById('guides'));
+  if (wipe.snap) { wipe.snap.remove(); wipe.snap = null; }
+  level = i; themeVars(pfEl, level);
+  closeSnap = snap;
+  sfx.levelUp(level);
+}
+function endClose() {
+  if (!closeSnap) return;
+  pfEl.insertBefore(jpLayer, document.getElementById('Targets'));   // back to its usual spot
+  closeSnap.remove(); closeSnap = null;
 }
 function renderWipe(dt) {
   if (!wipe.snap) return;
